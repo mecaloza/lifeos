@@ -1,6 +1,7 @@
 import { Inter } from "next/font/google";
 import Link from "next/link";
 import { Home } from "lucide-react";
+import Sidebar from "@/components/Sidebar";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -14,32 +15,32 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className={inter.className}>
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
-          {/* Simple Navigation */}
-          <nav className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
-            <div className="container mx-auto px-4 max-w-7xl">
-              <div className="flex items-center justify-between h-16">
-                <Link href="/" className="flex items-center space-x-2">
-                  <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-700 rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold">L</span>
-                  </div>
-                  <span className="text-xl font-bold text-gray-900 dark:text-white">
-                    Life
-                  </span>
-                </Link>
-                <Link
-                  href="/"
-                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                >
-                  <Home className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-                </Link>
-              </div>
-            </div>
-          </nav>
+        <div className="min-h-screen bg-black flex">
+          {/* Sidebar */}
+          <Sidebar />
 
-          <main className="container mx-auto px-4 py-8 max-w-7xl">
-            {children}
-          </main>
+          {/* Main Content Area */}
+          <div className="flex-1 ml-16">
+            {/* Top Navigation */}
+            <nav className="bg-[#1a1a1a] border-b border-[#2d2d2d] sticky top-0 z-40">
+              <div className="px-6 max-w-7xl">
+                <div className="flex items-center justify-between h-16">
+                  <div className="flex items-center space-x-3">
+                    <span className="text-2xl font-bold text-white">
+                      LifeOS
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-4">
+                    <div className="w-8 h-8 bg-[#2a2a2a] border border-[#3a3a3a] rounded-full flex items-center justify-center">
+                      <span className="text-white text-sm font-medium">U</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </nav>
+
+            <main>{children}</main>
+          </div>
         </div>
       </body>
     </html>

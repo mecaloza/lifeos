@@ -2,6 +2,91 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Custom styles for contentEditable placeholder */
+[contenteditable][data-placeholder]:before {
+  content: attr(data-placeholder);
+  color: #666666;
+  opacity: var(--placeholder-opacity, 1);
+  pointer-events: none;
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  font-size: inherit;
+  line-height: inherit;
+  z-index: 1;
+}
+
+/* Hide placeholder when there's actual content (not just br) */
+[contenteditable]:not(:empty):not([innerHTML="<br>"]):before {
+  opacity: 0;
+}
+
+[contenteditable] {
+  --placeholder-opacity: 1;
+  position: relative;
+  outline: none;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+[contenteditable]:focus {
+  --placeholder-opacity: 0;
+}
+
+[contenteditable]:not(:empty) {
+  --placeholder-opacity: 0;
+}
+
+/* Ensure images in contentEditable behave properly */
+[contenteditable] img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 10px 0;
+  border-radius: 8px;
+}
+
+/* Fix for contentEditable cursor positioning */
+[contenteditable]:empty {
+  min-height: 1.5em;
+}
+
+/* Allow line breaks to display properly */
+[contenteditable] br {
+  display: block;
+  margin: 0;
+  line-height: 1.5;
+  content: "";
+}
+
+/* Ensure proper line spacing */
+[contenteditable] {
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* Line clamp utilities for text truncation */
+.line-clamp-1 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.line-clamp-2 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.line-clamp-3 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 @layer base {
   body {
     @apply bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100;
