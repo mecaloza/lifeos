@@ -529,10 +529,10 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* This Week's Tasks by Tag & Status */}
+        {/* This Week&apos;s Tasks by Tag &amp; Status */}
         <div className="bg-[#1a1a1a] border border-[#2d2d2d] rounded-lg p-6">
           <h3 className="text-white font-semibold text-lg mb-4">
-            This Week's Tasks by Tag & Status
+            This Week&apos;s Tasks by Tag &amp; Status
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {["todo", "in_progress", "waiting", "done"].map((status) => {

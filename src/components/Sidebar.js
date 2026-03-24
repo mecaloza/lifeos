@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Home,
   CheckSquare,
   Calendar,
   BarChart3,
@@ -13,17 +12,13 @@ import {
   Plus,
   Trello,
   FileText,
+  Users,
 } from "lucide-react";
 
 export default function Sidebar() {
   const pathname = usePathname();
 
   const menuItems = [
-    {
-      icon: Home,
-      href: "/",
-      label: "Home",
-    },
     {
       icon: CheckSquare,
       href: "/tasks",
@@ -33,6 +28,11 @@ export default function Sidebar() {
       icon: Trello,
       href: "/kanban",
       label: "Kanban",
+    },
+    {
+      icon: Users,
+      href: "/delegated",
+      label: "Delegated",
     },
     {
       icon: FileText,

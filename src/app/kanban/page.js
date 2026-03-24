@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   DndContext,
   closestCenter,
@@ -27,11 +27,22 @@ import {
   X,
   History,
   ChevronRight,
+  Mail,
+  Eye,
+  EyeOff,
+  Search,
+  Filter,
+  Users,
+  User,
+  ChevronDown,
+  Link,
+  Unlink,
+  Layers,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 // Draggable Task Component
-function KanbanTask({ task, availableTags, onShowTimeline }) {
+function KanbanTask({ task, availableTags, onShowTimeline, onHideTask }) {
   const {
     attributes,
     listeners,
@@ -52,15 +63,42 @@ function KanbanTask({ task, availableTags, onShowTimeline }) {
       style={style}
       {...attributes}
       {...listeners}
-      className={`bg-[#1a1a1a] border border-[#2d2d2d] rounded-lg p-4 hover:bg-[#1e1e1e] hover:border-[#3a3a3a] transition-all duration-200 group ${
+      className={`bg-[#1a1a1a] border rounded-lg p-3 hover:bg-[#1e1e1e] transition-all duration-200 group ${
         isDragging
-          ? "opacity-40 cursor-grabbing"
+          ? "opacity-40 cursor-grabbing border-[#2d2d2d]"
           : "cursor-grab hover:shadow-lg"
+      } ${
+        task.is_group
+          ? "border-[#8B5CF6]/40 hover:border-[#8B5CF6]/60"
+          : "border-[#2d2d2d] hover:border-[#3a3a3a]"
       }`}
     >
-      <h3 className="text-white font-medium text-sm mb-2 line-clamp-2">
-        {task.title}
-      </h3>
+      <div className="flex items-start justify-between mb-2">
+        <h3 className="text-white font-medium text-sm line-clamp-2 flex-1">
+          {task.title}
+        </h3>
+        <div className="flex items-center space-x-1 flex-shrink-0 ml-2">
+          {/* Group Badge */}
+          {task.is_group && (
+            <span className="bg-[#8B5CF6]/20 text-[#8B5CF6] text-xs px-1.5 py-0.5 rounded flex items-center space-x-0.5" title={`Group: ${task.subtask_count || 0} subtasks`}>
+              <Layers className="w-2.5 h-2.5" />
+              <span className="font-medium">{task.subtask_count || 0}</span>
+            </span>
+          )}
+          {/* Delegated Badge */}
+          {task.is_delegated && (
+            <span className="bg-orange-500/20 text-orange-400 text-xs px-1.5 py-0.5 rounded flex items-center" title={`Delegated to: ${task.delegated_to || 'Team'}`}>
+              <Users className="w-2.5 h-2.5" />
+            </span>
+          )}
+          {/* Source Badge */}
+          {task.source && task.source !== "manual" && (
+            <span className="bg-blue-500/20 text-blue-400 text-xs px-1.5 py-0.5 rounded flex items-center">
+              <Mail className="w-2.5 h-2.5" />
+            </span>
+          )}
+        </div>
+      </div>
 
       {task.description && (
         <p className="text-[#a1a1a1] text-xs mb-3 line-clamp-2">
@@ -104,16 +142,28 @@ function KanbanTask({ task, availableTags, onShowTimeline }) {
           <Clock className="w-3 h-3" />
           <span>{new Date(task.created_at).toLocaleDateString()}</span>
         </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onShowTimeline(task);
-          }}
-          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#2a2a2a] rounded transition-all"
-          title="View task timeline"
-        >
-          <History className="w-3 h-3" />
-        </button>
+        <div className="flex items-center space-x-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onHideTask(task.id);
+            }}
+            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#2a2a2a] rounded transition-all"
+            title="Hide task"
+          >
+            <EyeOff className="w-3 h-3" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onShowTimeline(task);
+            }}
+            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#2a2a2a] rounded transition-all"
+            title="View task timeline"
+          >
+            <History className="w-3 h-3" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -267,8 +317,18 @@ function KanbanColumn({
   availableTags,
   onDeleteColumn,
   onShowTimeline,
+  onAddTask,
+  onHideTask,
+  onUnhideTask,
+  showHiddenTasks,
+  mergeTarget,
+  mergeReady,
+  onUngroupTask,
+  allTasks,
 }) {
-  const tasksInColumn = tasks.filter((task) => task.status === column.id);
+  const tasksInColumn = tasks
+    .filter((task) => task.status === column.id)
+    .sort((a, b) => (a.kanban_order ?? 999999) - (b.kanban_order ?? 999999));
 
   const { isOver, setNodeRef } = useDroppable({
     id: column.id,
@@ -277,60 +337,146 @@ function KanbanColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`bg-[#0a0a0a] rounded-lg border flex flex-col min-h-[600px] w-72 flex-shrink-0 transition-all duration-200 ${
+      className={`bg-[#0a0a0a] rounded-lg border flex flex-col h-full min-w-0 transition-all duration-200 ${
         isOver
           ? "border-[#4a4a4a] bg-[#1a1a1a] shadow-lg ring-2 ring-[#3a3a3a]/50"
           : "border-[#1a1a1a]"
       }`}
     >
       {/* Column Header */}
-      <div className="p-4 border-b border-[#1a1a1a]">
+      <div className="p-3 border-b border-[#1a1a1a]">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2 min-w-0">
             <div
-              className="w-3 h-3 rounded-full"
+              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
               style={{ backgroundColor: column.color }}
             ></div>
-            <h2 className="text-white font-semibold text-sm">{column.name}</h2>
-            <span className="bg-[#1a1a1a] text-[#a1a1a1] text-xs px-2 py-0.5 rounded-full">
+            <h2 className="text-white font-semibold text-xs truncate">{column.name}</h2>
+            <span className="bg-[#1a1a1a] text-[#a1a1a1] text-xs px-1.5 py-0.5 rounded-full flex-shrink-0">
               {tasksInColumn.length}
             </span>
           </div>
-          {column.id !== "backlog" && (
+          <div className="flex items-center space-x-1">
             <button
-              onClick={() => onDeleteColumn(column.id)}
-              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#2a2a2a] rounded transition-all"
+              onClick={() => onAddTask(column.id)}
+              className="p-1 hover:bg-[#2a2a2a] rounded transition-all"
+              title={`Add task to ${column.name}`}
             >
-              <X className="w-4 h-4 text-[#666666] hover:text-red-400" />
+              <Plus className="w-4 h-4 text-[#666666] hover:text-white" />
             </button>
-          )}
+            {column.id !== "backlog" && column.id !== "todo" && column.id !== "in_progress" && column.id !== "waiting" && column.id !== "done" && (
+              <button
+                onClick={() => onDeleteColumn(column.id)}
+                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#2a2a2a] rounded transition-all"
+              >
+                <X className="w-4 h-4 text-[#666666] hover:text-red-400" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Column Content - Drop Zone */}
-      <div className="p-4 flex-1 min-h-0">
+      <div className="p-3 flex-1 min-h-0 overflow-y-auto">
         <SortableContext
           items={tasksInColumn.map((task) => task.id)}
           strategy={verticalListSortingStrategy}
         >
-          <div className="space-y-3 min-h-full">
-            {tasksInColumn.map((task) => (
-              <KanbanTask
-                key={task.id}
-                task={task}
-                availableTags={availableTags}
-                onShowTimeline={onShowTimeline}
-              />
-            ))}
+          <div className="space-y-2 min-h-full">
+            {tasksInColumn.map((task) => {
+              const isMergeTarget = mergeTarget === task.id;
+              const childTasks = task.is_group ? allTasks.filter(t => t.parent_task_id === task.id) : [];
+              
+              return (
+                <div key={task.id} className="relative">
+                  {/* Merge indicator */}
+                  {isMergeTarget && (
+                    <div className={`absolute inset-0 z-20 rounded-lg border-2 border-dashed pointer-events-none transition-all duration-300 ${
+                      mergeReady
+                        ? "border-[#8B5CF6] bg-[#8B5CF6]/20 shadow-lg shadow-[#8B5CF6]/20"
+                        : "border-[#8B5CF6]/40 bg-[#8B5CF6]/5"
+                    }`}>
+                      <div className={`absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap transition-all ${
+                        mergeReady
+                          ? "bg-[#8B5CF6] text-white"
+                          : "bg-[#8B5CF6]/40 text-[#8B5CF6]"
+                      }`}>
+                        {mergeReady ? "🔗 Drop to merge!" : "Hold to merge..."}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Hidden badge */}
+                  {task.is_hidden_kanban && showHiddenTasks && (
+                    <div className="absolute -top-1 -right-1 z-10">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUnhideTask(task.id);
+                        }}
+                        className="bg-yellow-500 text-black text-xs px-1.5 py-0.5 rounded-full font-medium hover:bg-yellow-400 transition-colors flex items-center space-x-1"
+                        title="Unhide task"
+                      >
+                        <Eye className="w-3 h-3" />
+                        <span>Show</span>
+                      </button>
+                    </div>
+                  )}
+                  
+                  <div className={task.is_hidden_kanban && showHiddenTasks ? "opacity-50 border-dashed border-yellow-500/30" : ""}>
+                    <KanbanTask
+                      task={task}
+                      availableTags={availableTags}
+                      onShowTimeline={onShowTimeline}
+                      onHideTask={onHideTask}
+                    />
+                    
+                    {/* Group indicator - show subtasks */}
+                    {task.is_group && childTasks.length > 0 && (
+                      <div className="mt-1 ml-2 border-l-2 border-[#8B5CF6]/40 pl-2 space-y-1">
+                        {childTasks.map((child) => (
+                          <div
+                            key={child.id}
+                            className="bg-[#0a0a0a] border border-[#2d2d2d] rounded px-2 py-1 text-xs text-[#a1a1a1] flex items-center justify-between group/child"
+                          >
+                            <div className="flex items-center space-x-1.5 min-w-0">
+                              <Link className="w-3 h-3 text-[#8B5CF6] flex-shrink-0" />
+                              <span className="truncate">{child.title}</span>
+                            </div>
+                          </div>
+                        ))}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onUngroupTask(task);
+                          }}
+                          className="flex items-center space-x-1 text-xs text-[#666666] hover:text-red-400 transition-colors px-1 py-0.5"
+                        >
+                          <Unlink className="w-3 h-3" />
+                          <span>Ungroup</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
             {tasksInColumn.length === 0 && (
               <div
-                className={`text-center py-12 text-sm transition-all duration-200 ${
+                className={`text-center py-8 text-sm transition-all duration-200 ${
                   isOver
                     ? "text-[#a1a1a1] bg-[#2a2a2a]/20 border-2 border-dashed border-[#3a3a3a] rounded-lg"
                     : "text-[#666666]"
                 }`}
               >
-                {isOver ? "Drop here!" : "Drop tasks here"}
+                {isOver ? "Drop here!" : (
+                  <button
+                    onClick={() => onAddTask(column.id)}
+                    className="hover:text-white transition-colors"
+                  >
+                    + Add task
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -358,6 +504,29 @@ export default function KanbanPage() {
   const [showTimeline, setShowTimeline] = useState(false);
   const [selectedTaskForTimeline, setSelectedTaskForTimeline] = useState(null);
   const [taskTimeline, setTaskTimeline] = useState([]);
+  const [showIntegratedTasks, setShowIntegratedTasks] = useState(false);
+  const [showHiddenTasks, setShowHiddenTasks] = useState(false);
+  
+  // Merge/group task states
+  const [mergeTarget, setMergeTarget] = useState(null); // task ID being hovered over
+  const [mergeReady, setMergeReady] = useState(false); // true when hold time reached
+  const mergeTimerRef = useRef(null);
+  const mergeHoverIdRef = useRef(null);
+  const MERGE_HOLD_TIME = 1500; // 1.5 seconds hold to merge
+  
+  // Search and Filter states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTagFilter, setSelectedTagFilter] = useState(null);
+  const [ownershipFilter, setOwnershipFilter] = useState("mine"); // "all", "mine", "delegated" - default to "mine"
+  const [showFilters, setShowFilters] = useState(false);
+  
+  // Task creation modal states
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [newTaskColumn, setNewTaskColumn] = useState(null);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskDescription, setNewTaskDescription] = useState("");
+  const [newTaskTags, setNewTaskTags] = useState([]);
+  const [savingTask, setSavingTask] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -382,6 +551,7 @@ export default function KanbanPage() {
       const { data, error } = await supabase
         .from("tasks")
         .select("*")
+        .order("kanban_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -435,14 +605,255 @@ export default function KanbanPage() {
     }
   };
 
+  // Clear merge timer helper
+  const clearMergeTimer = useCallback(() => {
+    if (mergeTimerRef.current) {
+      clearTimeout(mergeTimerRef.current);
+      mergeTimerRef.current = null;
+    }
+    mergeHoverIdRef.current = null;
+    setMergeTarget(null);
+    setMergeReady(false);
+  }, []);
+
   const handleDragStart = (event) => {
     const { active } = event;
     const task = tasks.find((task) => task.id === active.id);
     setActiveTask(task);
+    clearMergeTimer();
+  };
+
+  // Track hover over tasks for merge detection
+  const handleDragOver = useCallback((event) => {
+    const { active, over } = event;
+    if (!over || !active) {
+      clearMergeTimer();
+      return;
+    }
+
+    // Only trigger merge when hovering over a TASK (not a column)
+    const isColumn = columns.some((col) => col.id === over.id);
+    if (isColumn) {
+      clearMergeTimer();
+      return;
+    }
+
+    const overTask = tasks.find((t) => t.id === over.id);
+    const activeTaskData = tasks.find((t) => t.id === active.id);
+    if (!overTask || !activeTaskData) {
+      clearMergeTimer();
+      return;
+    }
+
+    // Must be in the SAME column to merge
+    if (overTask.status !== activeTaskData.status) {
+      clearMergeTimer();
+      return;
+    }
+
+    // Don't merge with self
+    if (overTask.id === activeTaskData.id) {
+      clearMergeTimer();
+      return;
+    }
+
+    // If still hovering over the same task, don't restart the timer
+    if (mergeHoverIdRef.current === over.id) {
+      return;
+    }
+
+    // New hover target - start a new timer
+    clearMergeTimer();
+    mergeHoverIdRef.current = over.id;
+    setMergeTarget(over.id);
+
+    mergeTimerRef.current = setTimeout(() => {
+      setMergeReady(true);
+      console.log(`🔗 Merge ready: drop now to merge tasks!`);
+    }, MERGE_HOLD_TIME);
+  }, [tasks, columns, clearMergeTimer]);
+
+  // Merge tasks: create a group parent or add to existing group
+  const mergeTasks = async (draggedTask, targetTask) => {
+    try {
+      console.log(`🔗 Merging "${draggedTask.title}" into "${targetTask.title}"`);
+
+      // Check if target is already a group
+      if (targetTask.is_group) {
+        // Add dragged task to existing group
+        const { error } = await supabase
+          .from("tasks")
+          .update({ parent_task_id: targetTask.id, is_hidden_kanban: true })
+          .eq("id", draggedTask.id);
+
+        if (error) {
+          console.error("Error adding to group:", error);
+          return;
+        }
+
+        // Update subtask count on parent
+        const subtaskCount = tasks.filter(t => t.parent_task_id === targetTask.id).length + 1;
+        await supabase
+          .from("tasks")
+          .update({ subtask_count: subtaskCount })
+          .eq("id", targetTask.id);
+
+        // Update local state
+        setTasks(tasks.map(t => {
+          if (t.id === draggedTask.id) return { ...t, parent_task_id: targetTask.id, is_hidden_kanban: true };
+          if (t.id === targetTask.id) return { ...t, subtask_count: subtaskCount };
+          return t;
+        }));
+
+        console.log(`✅ Added "${draggedTask.title}" to group "${targetTask.title}"`);
+      } else {
+        // Create a new group: target becomes group parent, dragged becomes child
+        // Mark target as a group
+        const { error: groupError } = await supabase
+          .from("tasks")
+          .update({ is_group: true, subtask_count: 1 })
+          .eq("id", targetTask.id);
+
+        if (groupError) {
+          console.error("Error creating group:", groupError);
+          return;
+        }
+
+        // Link dragged task to target as child
+        const { error: childError } = await supabase
+          .from("tasks")
+          .update({ parent_task_id: targetTask.id, is_hidden_kanban: true })
+          .eq("id", draggedTask.id);
+
+        if (childError) {
+          console.error("Error linking child task:", childError);
+          return;
+        }
+
+        // Update local state
+        setTasks(tasks.map(t => {
+          if (t.id === targetTask.id) return { ...t, is_group: true, subtask_count: 1 };
+          if (t.id === draggedTask.id) return { ...t, parent_task_id: targetTask.id, is_hidden_kanban: true };
+          return t;
+        }));
+
+        console.log(`✅ Created group from "${targetTask.title}" + "${draggedTask.title}"`);
+      }
+
+      // Show notification
+      const toast = document.createElement("div");
+      toast.className = "fixed top-4 right-4 bg-[#8B5CF6] text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center space-x-2";
+      toast.innerHTML = `<span>🔗 Tasks merged into "${targetTask.title}"</span>`;
+      document.body.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = "0";
+        toast.style.transition = "opacity 0.3s";
+        setTimeout(() => document.body.removeChild(toast), 300);
+      }, 2500);
+
+    } catch (error) {
+      console.error("Error merging tasks:", error);
+    }
+  };
+
+  // Ungroup: remove all children from a group
+  const ungroupTask = async (groupTask) => {
+    try {
+      // Find all children
+      const children = tasks.filter(t => t.parent_task_id === groupTask.id);
+
+      if (children.length === 0) return;
+
+      // Unlink all children
+      const childIds = children.map(c => c.id);
+      const { error: childError } = await supabase
+        .from("tasks")
+        .update({ parent_task_id: null, is_hidden_kanban: false })
+        .in("id", childIds);
+
+      if (childError) {
+        console.error("Error unlinking children:", childError);
+        return;
+      }
+
+      // Remove group flag from parent
+      const { error: parentError } = await supabase
+        .from("tasks")
+        .update({ is_group: false, subtask_count: 0 })
+        .eq("id", groupTask.id);
+
+      if (parentError) {
+        console.error("Error removing group:", parentError);
+        return;
+      }
+
+      // Update local state
+      setTasks(tasks.map(t => {
+        if (t.id === groupTask.id) return { ...t, is_group: false, subtask_count: 0 };
+        if (childIds.includes(t.id)) return { ...t, parent_task_id: null, is_hidden_kanban: false };
+        return t;
+      }));
+
+      console.log(`✅ Ungrouped "${groupTask.title}" - ${children.length} tasks released`);
+    } catch (error) {
+      console.error("Error ungrouping:", error);
+    }
+  };
+
+  // Remove a single task from a group
+  const removeFromGroup = async (childTask) => {
+    try {
+      const parentId = childTask.parent_task_id;
+      
+      const { error } = await supabase
+        .from("tasks")
+        .update({ parent_task_id: null, is_hidden_kanban: false })
+        .eq("id", childTask.id);
+
+      if (error) {
+        console.error("Error removing from group:", error);
+        return;
+      }
+
+      // Update subtask count on parent
+      const remainingChildren = tasks.filter(t => t.parent_task_id === parentId && t.id !== childTask.id).length;
+      
+      if (remainingChildren === 0) {
+        // No more children, remove group flag
+        await supabase
+          .from("tasks")
+          .update({ is_group: false, subtask_count: 0 })
+          .eq("id", parentId);
+
+        setTasks(tasks.map(t => {
+          if (t.id === childTask.id) return { ...t, parent_task_id: null, is_hidden_kanban: false };
+          if (t.id === parentId) return { ...t, is_group: false, subtask_count: 0 };
+          return t;
+        }));
+      } else {
+        await supabase
+          .from("tasks")
+          .update({ subtask_count: remainingChildren })
+          .eq("id", parentId);
+
+        setTasks(tasks.map(t => {
+          if (t.id === childTask.id) return { ...t, parent_task_id: null, is_hidden_kanban: false };
+          if (t.id === parentId) return { ...t, subtask_count: remainingChildren };
+          return t;
+        }));
+      }
+
+      console.log(`✅ Removed "${childTask.title}" from group`);
+    } catch (error) {
+      console.error("Error removing from group:", error);
+    }
   };
 
   const handleDragEnd = async (event) => {
     const { active, over } = event;
+    const wasMergeReady = mergeReady;
+    const mergeTargetId = mergeTarget;
+    clearMergeTimer();
     setActiveTask(null);
 
     if (!over) return;
@@ -450,49 +861,107 @@ export default function KanbanPage() {
     const activeTaskData = tasks.find((task) => task.id === active.id);
     if (!activeTaskData) return;
 
-    // Find which column the task was dropped on
-    let newStatus = activeTaskData.status;
+    // Check if this is a MERGE operation (held over a task long enough)
+    if (wasMergeReady && mergeTargetId) {
+      const targetTask = tasks.find((t) => t.id === mergeTargetId);
+      if (targetTask && targetTask.id !== activeTaskData.id && targetTask.status === activeTaskData.status) {
+        await mergeTasks(activeTaskData, targetTask);
+        return; // Don't do normal drag/drop
+      }
+    }
 
-    // Check if dropped directly on a column
+    // Find target column
+    let newStatus = activeTaskData.status;
     const targetColumn = columns.find((col) => col.id === over.id);
     if (targetColumn) {
       newStatus = targetColumn.id;
     } else {
-      // If dropped on another task, find that task's column
       const targetTask = tasks.find((task) => task.id === over.id);
       if (targetTask) {
         newStatus = targetTask.status;
       }
     }
 
-    if (newStatus !== activeTaskData.status) {
-      // Update task status
-      const updatedTasks = tasks.map((task) =>
-        task.id === activeTaskData.id ? { ...task, status: newStatus } : task
-      );
-      setTasks(updatedTasks);
+    const statusChanged = newStatus !== activeTaskData.status;
 
-      // Update in Supabase (this will trigger the status history tracking automatically)
-      try {
-        const { error } = await supabase
-          .from("tasks")
-          .update({ status: newStatus })
-          .eq("id", activeTaskData.id);
+    // Get current tasks in the target column (sorted)
+    const targetColumnTasks = tasks
+      .filter((t) => t.status === newStatus && t.id !== activeTaskData.id)
+      .sort((a, b) => (a.kanban_order ?? 999999) - (b.kanban_order ?? 999999));
 
-        if (error) {
-          console.error("Error updating task status:", error);
-          // Revert the optimistic update if it failed
-          setTasks(tasks);
-        } else {
-          localStorage.setItem("tasks", JSON.stringify(updatedTasks));
-          // Show success feedback
-          console.log(`Task "${activeTaskData.title}" moved to ${newStatus}`);
-        }
-      } catch (error) {
-        console.error("Error:", error);
-        // Revert the optimistic update if it failed
-        setTasks(tasks);
+    // Determine the drop position
+    let dropIndex = targetColumnTasks.length; // default: end of column
+    const overTask = tasks.find((t) => t.id === over.id);
+    if (overTask && overTask.status === newStatus) {
+      dropIndex = targetColumnTasks.findIndex((t) => t.id === over.id);
+      if (dropIndex === -1) dropIndex = targetColumnTasks.length;
+    }
+
+    // Insert the active task at the drop position
+    targetColumnTasks.splice(dropIndex, 0, activeTaskData);
+
+    // Assign new order values for the entire target column
+    const updates = targetColumnTasks.map((task, index) => ({
+      id: task.id,
+      kanban_order: index,
+      status: newStatus,
+    }));
+
+    // If task moved to a different column, also reorder the source column
+    let sourceUpdates = [];
+    if (statusChanged) {
+      const sourceColumnTasks = tasks
+        .filter((t) => t.status === activeTaskData.status && t.id !== activeTaskData.id)
+        .sort((a, b) => (a.kanban_order ?? 999999) - (b.kanban_order ?? 999999));
+
+      sourceUpdates = sourceColumnTasks.map((task, index) => ({
+        id: task.id,
+        kanban_order: index,
+        status: activeTaskData.status,
+      }));
+    }
+
+    // Optimistic update: apply new orders to local state
+    const allUpdates = [...updates, ...sourceUpdates];
+    const updateMap = new Map(allUpdates.map((u) => [u.id, u]));
+
+    const updatedTasks = tasks.map((task) => {
+      const update = updateMap.get(task.id);
+      if (update) {
+        return { ...task, ...update };
       }
+      return task;
+    });
+
+    setTasks(updatedTasks);
+
+    // Persist to Supabase
+    try {
+      // Update all affected tasks in parallel
+      const promises = allUpdates.map((update) =>
+        supabase
+          .from("tasks")
+          .update({ kanban_order: update.kanban_order, status: update.status })
+          .eq("id", update.id)
+      );
+
+      const results = await Promise.all(promises);
+      const hasError = results.some((r) => r.error);
+
+      if (hasError) {
+        console.error("Error updating task order, reverting...");
+        setTasks(tasks); // Revert
+      } else {
+        localStorage.setItem("tasks", JSON.stringify(updatedTasks));
+        if (statusChanged) {
+          console.log(`Task "${activeTaskData.title}" moved to ${newStatus} at position ${dropIndex}`);
+        } else {
+          console.log(`Task "${activeTaskData.title}" reordered to position ${dropIndex}`);
+        }
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      setTasks(tasks); // Revert
     }
   };
 
@@ -531,6 +1000,75 @@ export default function KanbanPage() {
     setColumns(columns.filter((col) => col.id !== columnId));
   };
 
+  // Task creation handlers
+  const handleAddTaskToColumn = (columnId) => {
+    setNewTaskColumn(columnId);
+    setNewTaskTitle("");
+    setNewTaskDescription("");
+    setNewTaskTags([]);
+    setShowTaskModal(true);
+  };
+
+  const handleSaveNewTask = async () => {
+    if (!newTaskTitle.trim() || !newTaskColumn) return;
+    
+    setSavingTask(true);
+    try {
+      // Find the lowest order in the target column to place the new task at the top
+      const columnTasks = tasks.filter(t => t.status === newTaskColumn);
+      const minOrder = columnTasks.reduce((min, t) => Math.min(min, t.kanban_order ?? 999999), 999999);
+      const newOrder = minOrder > 0 ? minOrder - 1 : -1;
+
+      const newTask = {
+        title: newTaskTitle.trim(),
+        description: newTaskDescription.trim() || null,
+        tags: newTaskTags,
+        status: newTaskColumn,
+        completed: newTaskColumn === "done",
+        is_scheduled: false,
+        source: "manual",
+        kanban_order: newOrder,
+      };
+
+      const { data, error } = await supabase
+        .from("tasks")
+        .insert([newTask])
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Error creating task:", error);
+        alert("Failed to create task. Please try again.");
+      } else {
+        // Add to local state
+        setTasks([data, ...tasks]);
+        localStorage.setItem("tasks", JSON.stringify([data, ...tasks]));
+        
+        // Close modal and reset
+        setShowTaskModal(false);
+        setNewTaskColumn(null);
+        setNewTaskTitle("");
+        setNewTaskDescription("");
+        setNewTaskTags([]);
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Failed to create task. Please try again.");
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
+  const handleAddTagToNewTask = (tagName) => {
+    if (!newTaskTags.includes(tagName)) {
+      setNewTaskTags([...newTaskTags, tagName]);
+    }
+  };
+
+  const handleRemoveTagFromNewTask = (tagName) => {
+    setNewTaskTags(newTaskTags.filter((t) => t !== tagName));
+  };
+
   const showTaskTimeline = async (task) => {
     try {
       setSelectedTaskForTimeline(task);
@@ -563,6 +1101,137 @@ export default function KanbanPage() {
     setTaskTimeline([]);
   };
 
+  // Hide a task in Kanban (persists to Supabase)
+  const hideTask = async (taskId) => {
+    try {
+      // Optimistic update
+      setTasks(tasks.map(t => t.id === taskId ? { ...t, is_hidden_kanban: true } : t));
+
+      const { error } = await supabase
+        .from("tasks")
+        .update({ is_hidden_kanban: true })
+        .eq("id", taskId);
+
+      if (error) {
+        console.error("Error hiding task:", error);
+        // Revert on failure
+        setTasks(tasks);
+      }
+    } catch (error) {
+      console.error("Error:", error);
+    }
+  };
+
+  // Unhide a task in Kanban
+  const unhideTask = async (taskId) => {
+    try {
+      setTasks(tasks.map(t => t.id === taskId ? { ...t, is_hidden_kanban: false } : t));
+
+      const { error } = await supabase
+        .from("tasks")
+        .update({ is_hidden_kanban: false })
+        .eq("id", taskId);
+
+      if (error) {
+        console.error("Error unhiding task:", error);
+        setTasks(tasks);
+      }
+    } catch (error) {
+      console.error("Error:", error);
+    }
+  };
+
+  // Unhide all tasks
+  const unhideAllTasks = async () => {
+    try {
+      const hiddenIds = tasks.filter(t => t.is_hidden_kanban).map(t => t.id);
+      if (hiddenIds.length === 0) return;
+
+      setTasks(tasks.map(t => ({ ...t, is_hidden_kanban: false })));
+
+      const { error } = await supabase
+        .from("tasks")
+        .update({ is_hidden_kanban: false })
+        .in("id", hiddenIds);
+
+      if (error) {
+        console.error("Error unhiding all tasks:", error);
+        fetchTasks();
+      }
+    } catch (error) {
+      console.error("Error:", error);
+    }
+  };
+
+  // Count hidden tasks (only manually hidden, NOT grouped children)
+  const hiddenTasksCount = tasks.filter(t => t.is_hidden_kanban && !t.parent_task_id).length;
+
+  // Filter tasks based on all criteria
+  const filteredTasks = tasks.filter((task) => {
+    // Always hide child tasks from columns - they show under their parent group
+    if (task.parent_task_id) {
+      return false;
+    }
+    
+    // Hide manually hidden tasks unless toggle is on
+    if (!showHiddenTasks && task.is_hidden_kanban && !task.parent_task_id) {
+      return false;
+    }
+    
+    // Hide integrated tasks if toggle is off
+    const isIntegrated = task.source && task.source !== "manual";
+    if (!showIntegratedTasks && isIntegrated) {
+      return false;
+    }
+    
+    // Search filter - search in title and description
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      const matchesTitle = task.title?.toLowerCase().includes(query);
+      const matchesDescription = task.description?.toLowerCase().includes(query);
+      if (!matchesTitle && !matchesDescription) {
+        return false;
+      }
+    }
+    
+    // Tag filter
+    if (selectedTagFilter) {
+      const taskTags = task.tags || [];
+      if (!taskTags.includes(selectedTagFilter)) {
+        return false;
+      }
+    }
+    
+    // Ownership filter
+    if (ownershipFilter === "mine" && task.is_delegated) {
+      return false;
+    }
+    if (ownershipFilter === "delegated" && !task.is_delegated) {
+      return false;
+    }
+    
+    return true;
+  });
+
+  // Count integrated tasks
+  const integratedTasksCount = tasks.filter(
+    (task) => task.source && task.source !== "manual"
+  ).length;
+  
+  // Count active filters (mine is default, so only count if changed to "all" or "delegated")
+  const activeFiltersCount = [
+    searchQuery.trim() ? 1 : 0,
+    selectedTagFilter ? 1 : 0,
+    ownershipFilter !== "mine" ? 1 : 0,
+  ].reduce((a, b) => a + b, 0);
+  
+  // Clear all filters (reset to defaults - "mine" is default)
+  const clearFilters = () => {
+    setSearchQuery("");
+    setSelectedTagFilter(null);
+    setOwnershipFilter("mine");
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -577,24 +1246,193 @@ export default function KanbanPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black">
-      <div className="p-6">
+    <div className="h-screen bg-black overflow-hidden flex flex-col">
+      <div className="p-4 flex flex-col flex-1 min-h-0">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-3 flex-shrink-0">
           <div>
-            <h1 className="text-3xl font-bold text-white">Kanban Board</h1>
-            <p className="text-[#a1a1a1] mt-1 text-base">
-              Drag and drop your tasks between columns
+            <h1 className="text-2xl font-bold text-white">Kanban Board</h1>
+            <p className="text-[#a1a1a1] text-sm">
+              Drag and drop tasks between columns
             </p>
           </div>
-          <button
-            onClick={() => setShowAddColumn(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-[#1e1e1e] border border-[#2d2d2d] text-white rounded-lg hover:bg-[#2a2a2a] hover:border-[#3a3a3a] transition-all duration-200 font-medium"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Add Column</span>
-          </button>
+          <div className="flex items-center space-x-2">
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[#666666]" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search tasks..."
+                className="w-48 pl-9 pr-3 py-2 rounded-lg border border-[#2d2d2d] bg-[#1a1a1a] text-white placeholder-[#666666] text-sm focus:border-[#3a3a3a] focus:outline-none transition-all"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 p-0.5 hover:bg-[#2a2a2a] rounded"
+                >
+                  <X className="w-3 h-3 text-[#666666]" />
+                </button>
+              )}
+            </div>
+
+            {/* Filter Button */}
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center space-x-1.5 px-3 py-2 border rounded-lg transition-all duration-200 text-sm ${
+                activeFiltersCount > 0
+                  ? "bg-purple-500/20 border-purple-500/50 text-purple-400"
+                  : "bg-[#1e1e1e] border-[#2d2d2d] text-[#a1a1a1] hover:bg-[#2a2a2a]"
+              }`}
+            >
+              <Filter className="w-4 h-4" />
+              <span>Filters</span>
+              {activeFiltersCount > 0 && (
+                <span className="bg-purple-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                  {activeFiltersCount}
+                </span>
+              )}
+            </button>
+
+            {/* Toggle for hidden tasks */}
+            {hiddenTasksCount > 0 && (
+              <button
+                onClick={() => setShowHiddenTasks(!showHiddenTasks)}
+                className={`flex items-center space-x-1.5 px-3 py-2 border rounded-lg transition-all duration-200 text-sm ${
+                  showHiddenTasks
+                    ? "bg-yellow-500/20 border-yellow-500/50 text-yellow-400"
+                    : "bg-[#1e1e1e] border-[#2d2d2d] text-[#a1a1a1] hover:bg-[#2a2a2a]"
+                }`}
+                title={showHiddenTasks ? "Hide hidden tasks" : "Show hidden tasks"}
+              >
+                {showHiddenTasks ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                <span>Hidden ({hiddenTasksCount})</span>
+              </button>
+            )}
+
+            {/* Toggle for integrated tasks */}
+            <button
+              onClick={() => setShowIntegratedTasks(!showIntegratedTasks)}
+              className={`flex items-center space-x-1.5 px-3 py-2 border rounded-lg transition-all duration-200 text-sm ${
+                showIntegratedTasks
+                  ? "bg-blue-500/20 border-blue-500/50 text-blue-400"
+                  : "bg-[#1e1e1e] border-[#2d2d2d] text-[#a1a1a1] hover:bg-[#2a2a2a]"
+              }`}
+              title={showIntegratedTasks ? "Hide calendar events" : "Show calendar events"}
+            >
+              {showIntegratedTasks ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+              <Mail className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={() => setShowAddColumn(true)}
+              className="flex items-center space-x-1.5 px-3 py-2 bg-[#1e1e1e] border border-[#2d2d2d] text-white rounded-lg hover:bg-[#2a2a2a] transition-all duration-200 text-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Column</span>
+            </button>
+          </div>
         </div>
+
+        {/* Filter Panel */}
+        {showFilters && (
+          <div className="bg-[#1a1a1a] border border-[#2d2d2d] rounded-lg p-3 mb-3 flex-shrink-0">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              {/* Tag Filter */}
+              <div className="flex items-center space-x-2">
+                <Tag className="w-4 h-4 text-[#666666]" />
+                <span className="text-xs text-[#a1a1a1]">Tag:</span>
+                <div className="flex items-center gap-1 flex-wrap">
+                  <button
+                    onClick={() => setSelectedTagFilter(null)}
+                    className={`px-2 py-1 rounded text-xs transition-all ${
+                      !selectedTagFilter
+                        ? "bg-[#2a2a2a] text-white"
+                        : "text-[#666666] hover:text-white"
+                    }`}
+                  >
+                    All
+                  </button>
+                  {availableTags.slice(0, 6).map((tag) => (
+                    <button
+                      key={tag.id}
+                      onClick={() => setSelectedTagFilter(selectedTagFilter === tag.name ? null : tag.name)}
+                      className={`px-2 py-1 rounded text-xs transition-all ${
+                        selectedTagFilter === tag.name
+                          ? "ring-1 ring-offset-1 ring-offset-[#1a1a1a]"
+                          : "opacity-70 hover:opacity-100"
+                      }`}
+                      style={{
+                        backgroundColor: `${tag.color}20`,
+                        color: tag.color,
+                        borderColor: selectedTagFilter === tag.name ? tag.color : "transparent",
+                      }}
+                    >
+                      {tag.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Ownership Filter */}
+              <div className="flex items-center space-x-2">
+                <Users className="w-4 h-4 text-[#666666]" />
+                <span className="text-xs text-[#a1a1a1]">Show:</span>
+                <div className="flex items-center bg-[#0a0a0a] rounded-lg p-0.5">
+                  <button
+                    onClick={() => setOwnershipFilter("all")}
+                    className={`px-2 py-1 rounded text-xs transition-all ${
+                      ownershipFilter === "all"
+                        ? "bg-[#2a2a2a] text-white"
+                        : "text-[#666666] hover:text-white"
+                    }`}
+                  >
+                    All Tasks
+                  </button>
+                  <button
+                    onClick={() => setOwnershipFilter("mine")}
+                    className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-all ${
+                      ownershipFilter === "mine"
+                        ? "bg-green-500/20 text-green-400"
+                        : "text-[#666666] hover:text-white"
+                    }`}
+                  >
+                    <User className="w-3 h-3" />
+                    <span>Mine</span>
+                  </button>
+                  <button
+                    onClick={() => setOwnershipFilter("delegated")}
+                    className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-all ${
+                      ownershipFilter === "delegated"
+                        ? "bg-orange-500/20 text-orange-400"
+                        : "text-[#666666] hover:text-white"
+                    }`}
+                  >
+                    <Users className="w-3 h-3" />
+                    <span>Delegated</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Clear Filters */}
+              {activeFiltersCount > 0 && (
+                <button
+                  onClick={clearFilters}
+                  className="flex items-center space-x-1 px-2 py-1 text-xs text-red-400 hover:bg-red-500/10 rounded transition-all"
+                >
+                  <X className="w-3 h-3" />
+                  <span>Clear filters</span>
+                </button>
+              )}
+
+              {/* Results Count */}
+              <div className="text-xs text-[#666666] ml-auto">
+                Showing {filteredTasks.length} of {tasks.length} tasks
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Add Column Modal */}
         {showAddColumn && (
@@ -632,22 +1470,151 @@ export default function KanbanPage() {
           </div>
         )}
 
+        {/* Add Task Modal */}
+        {showTaskModal && newTaskColumn && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-[#1a1a1a] border border-[#2d2d2d] rounded-lg w-full max-w-md">
+              {/* Header */}
+              <div className="p-4 border-b border-[#2d2d2d]">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <div
+                      className="w-3 h-3 rounded-full"
+                      style={{ backgroundColor: columns.find(c => c.id === newTaskColumn)?.color || "#3B82F6" }}
+                    ></div>
+                    <h2 className="text-lg font-semibold text-white">
+                      Add Task to {columns.find(c => c.id === newTaskColumn)?.name || "Column"}
+                    </h2>
+                  </div>
+                  <button
+                    onClick={() => setShowTaskModal(false)}
+                    className="p-2 hover:bg-[#2a2a2a] rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5 text-[#a1a1a1] hover:text-white" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Form */}
+              <div className="p-4 space-y-4">
+                {/* Title */}
+                <div>
+                  <label className="block text-sm font-medium text-[#a1a1a1] mb-2">
+                    Task Title *
+                  </label>
+                  <input
+                    type="text"
+                    value={newTaskTitle}
+                    onChange={(e) => setNewTaskTitle(e.target.value)}
+                    placeholder="What needs to be done?"
+                    className="w-full px-3 py-2 rounded-lg border border-[#2d2d2d] bg-[#0a0a0a] text-white placeholder-[#666666] focus:border-[#3a3a3a] focus:outline-none"
+                    autoFocus
+                    onKeyPress={(e) => {
+                      if (e.key === "Enter" && newTaskTitle.trim()) {
+                        handleSaveNewTask();
+                      }
+                    }}
+                  />
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label className="block text-sm font-medium text-[#a1a1a1] mb-2">
+                    Description (optional)
+                  </label>
+                  <textarea
+                    value={newTaskDescription}
+                    onChange={(e) => setNewTaskDescription(e.target.value)}
+                    placeholder="Add details..."
+                    className="w-full px-3 py-2 rounded-lg border border-[#2d2d2d] bg-[#0a0a0a] text-white placeholder-[#666666] focus:border-[#3a3a3a] focus:outline-none resize-none"
+                    rows="2"
+                  />
+                </div>
+
+                {/* Tags */}
+                <div>
+                  <label className="block text-sm font-medium text-[#a1a1a1] mb-2">
+                    Tags
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {availableTags.map((tag) => (
+                      <button
+                        key={tag.id}
+                        type="button"
+                        onClick={() => {
+                          if (newTaskTags.includes(tag.name)) {
+                            handleRemoveTagFromNewTask(tag.name);
+                          } else {
+                            handleAddTagToNewTask(tag.name);
+                          }
+                        }}
+                        className={`px-2 py-1 rounded text-xs transition-all ${
+                          newTaskTags.includes(tag.name)
+                            ? "ring-2 ring-offset-1 ring-offset-[#1a1a1a]"
+                            : "opacity-60 hover:opacity-100"
+                        }`}
+                        style={{
+                          backgroundColor: `${tag.color}20`,
+                          color: tag.color,
+                          ringColor: newTaskTags.includes(tag.name) ? tag.color : "transparent",
+                        }}
+                      >
+                        <Tag className="w-3 h-3 inline mr-1" />
+                        {tag.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex justify-end space-x-3 pt-2">
+                  <button
+                    onClick={() => setShowTaskModal(false)}
+                    className="px-4 py-2 text-[#a1a1a1] hover:bg-[#2a2a2a] border border-[#2d2d2d] rounded-lg transition-all duration-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveNewTask}
+                    disabled={!newTaskTitle.trim() || savingTask}
+                    className="px-4 py-2 bg-[#1e1e1e] border border-[#2d2d2d] text-white rounded-lg hover:bg-[#2a2a2a] hover:border-[#3a3a3a] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {savingTask ? "Adding..." : "Add Task"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+
+
         {/* Kanban Board */}
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
+          onDragCancel={() => { clearMergeTimer(); setActiveTask(null); }}
         >
-          <div className="flex space-x-6 overflow-x-auto pb-6">
+          <div className="flex space-x-3 flex-1 min-h-0">
             {columns.map((column) => (
-              <div key={column.id} className="group">
+              <div key={column.id} className="group flex-1 min-w-0 h-full">
                 <KanbanColumn
                   column={column}
-                  tasks={tasks}
+                  tasks={filteredTasks}
                   availableTags={availableTags}
                   onDeleteColumn={deleteColumn}
                   onShowTimeline={showTaskTimeline}
+                  onAddTask={handleAddTaskToColumn}
+                  onHideTask={hideTask}
+                  onUnhideTask={unhideTask}
+                  showHiddenTasks={showHiddenTasks}
+                  mergeTarget={mergeTarget}
+                  mergeReady={mergeReady}
+                  onUngroupTask={ungroupTask}
+                  allTasks={tasks}
                 />
               </div>
             ))}

@@ -61,8 +61,11 @@ export default function NotesPage() {
   const [selectedTag, setSelectedTag] = useState("");
   const [showTaskLink, setShowTaskLink] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [isResizing, setIsResizing] = useState(false);
   const contentEditableRef = useRef(null);
   const fileInputRef = useRef(null);
+  const resizeHandleRef = useRef(null);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -106,10 +109,66 @@ export default function NotesPage() {
               selection.addRange(range);
             }
           }, 0);
+        } else {
+          // Make existing images resizable
+          setTimeout(() => {
+            makeExistingImagesResizable();
+          }, 100);
         }
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.content_html, showNewNote, editingNote]);
+
+  // Make existing images resizable
+  const makeExistingImagesResizable = () => {
+    if (!contentEditableRef.current) return;
+
+    const images = contentEditableRef.current.querySelectorAll("img");
+    images.forEach((img) => {
+      if (!img.classList.contains("resizable-image")) {
+        img.classList.add("resizable-image");
+        img.style.cursor = "pointer";
+
+        // Remove existing click listeners
+        img.removeEventListener("click", handleImageClick);
+        // Add click handler
+        img.addEventListener("click", handleImageClick);
+      }
+    });
+  };
+
+  // Handle image click
+  const handleImageClick = (event) => {
+    event.stopPropagation();
+    selectImage(event.target);
+  };
+
+  // Clear selection when clicking outside
+  useEffect(() => {
+    const handleDocumentClick = (event) => {
+      if (
+        !event.target.closest(".resizable-image") &&
+        !event.target.closest(".resize-handle")
+      ) {
+        clearImageSelection();
+      }
+    };
+
+    document.addEventListener("click", handleDocumentClick);
+    return () => {
+      document.removeEventListener("click", handleDocumentClick);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedImage]);
+
+  // Cleanup resize handles when component unmounts or selection changes
+  useEffect(() => {
+    return () => {
+      const handles = document.querySelectorAll(".resize-handle");
+      handles.forEach((handle) => handle.remove());
+    };
+  }, []);
 
   const fetchNotes = async () => {
     try {
@@ -360,6 +419,7 @@ export default function NotesPage() {
       task_id: null,
       is_pinned: false,
     });
+    clearImageSelection();
     setShowNewNote(false);
     setEditingNote(null);
     setShowTaskLink(false);
@@ -427,8 +487,6 @@ export default function NotesPage() {
 
         // Insert image into content at cursor position
         if (contentEditableRef.current) {
-          const img = `<img src="${base64Data}" alt="Uploaded image" style="max-width: 100%; height: auto; margin: 10px 0; border-radius: 8px; display: block;" />`;
-
           // Get current selection
           const selection = window.getSelection();
           if (selection.rangeCount > 0) {
@@ -436,8 +494,15 @@ export default function NotesPage() {
             const imgElement = document.createElement("img");
             imgElement.src = base64Data;
             imgElement.alt = "Uploaded image";
+            imgElement.className = "resizable-image";
             imgElement.style.cssText =
-              "max-width: 100%; height: auto; margin: 10px 0; border-radius: 8px; display: block;";
+              "width: 300px; height: auto; margin: 10px 0; border-radius: 8px; display: block; cursor: pointer; max-width: 100%;";
+
+            // Add click handler for selection
+            imgElement.addEventListener("click", (event) => {
+              event.stopPropagation();
+              selectImage(imgElement);
+            });
 
             range.insertNode(imgElement);
             range.collapse(false);
@@ -449,7 +514,26 @@ export default function NotesPage() {
             selection.addRange(range);
           } else {
             // If no selection, append to end
-            contentEditableRef.current.innerHTML += `<br>${img}<br>`;
+            const imgElement = document.createElement("img");
+            imgElement.src = base64Data;
+            imgElement.alt = "Uploaded image";
+            imgElement.className = "resizable-image";
+            imgElement.style.cssText =
+              "width: 300px; height: auto; margin: 10px 0; border-radius: 8px; display: block; cursor: pointer; max-width: 100%;";
+
+            // Add click handler for selection
+            imgElement.addEventListener("click", (event) => {
+              event.stopPropagation();
+              selectImage(imgElement);
+            });
+
+            contentEditableRef.current.appendChild(
+              document.createElement("br")
+            );
+            contentEditableRef.current.appendChild(imgElement);
+            contentEditableRef.current.appendChild(
+              document.createElement("br")
+            );
           }
 
           handleContentChange();
@@ -462,6 +546,209 @@ export default function NotesPage() {
       console.error("Error processing image:", error);
       alert("Failed to process image. Please try again.");
       setUploadingImage(false);
+    }
+  };
+
+  // Handle image selection for resizing
+  const selectImage = (imgElement) => {
+    // Clear previous selection
+    clearImageSelection();
+
+    setSelectedImage(imgElement);
+    imgElement.classList.add("selected-image");
+
+    // Add resize handles
+    addResizeHandles(imgElement);
+  };
+
+  // Clear image selection
+  const clearImageSelection = () => {
+    if (selectedImage) {
+      selectedImage.classList.remove("selected-image");
+      // Remove resize handles
+      const handles = document.querySelectorAll(".resize-handle");
+      handles.forEach((handle) => handle.remove());
+    }
+    setSelectedImage(null);
+  };
+
+  // Add resize handles to selected image
+  const addResizeHandles = (imgElement) => {
+    const rect = imgElement.getBoundingClientRect();
+    const container = contentEditableRef.current;
+    const containerRect = container.getBoundingClientRect();
+
+    // Create resize handles
+    const positions = [
+      { class: "nw-resize", cursor: "nw-resize", top: -5, left: -5 },
+      { class: "ne-resize", cursor: "ne-resize", top: -5, right: -5 },
+      { class: "sw-resize", cursor: "sw-resize", bottom: -5, left: -5 },
+      { class: "se-resize", cursor: "se-resize", bottom: -5, right: -5 },
+      { class: "n-resize", cursor: "n-resize", top: -5, left: "50%" },
+      { class: "s-resize", cursor: "s-resize", bottom: -5, left: "50%" },
+      { class: "w-resize", cursor: "w-resize", top: "50%", left: -5 },
+      { class: "e-resize", cursor: "e-resize", top: "50%", right: -5 },
+    ];
+
+    positions.forEach((pos) => {
+      const handle = document.createElement("div");
+      handle.className = `resize-handle ${pos.class}`;
+      handle.style.cssText = `
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        background: #007acc;
+        border: 1px solid #fff;
+        border-radius: 2px;
+        cursor: ${pos.cursor};
+        z-index: 1000;
+        ${pos.top !== undefined ? `top: ${pos.top}px;` : ""}
+        ${pos.bottom !== undefined ? `bottom: ${pos.bottom}px;` : ""}
+        ${
+          pos.left !== undefined
+            ? pos.left === "50%"
+              ? `left: 50%; transform: translateX(-50%);`
+              : `left: ${pos.left}px;`
+            : ""
+        }
+        ${pos.right !== undefined ? `right: ${pos.right}px;` : ""}
+      `;
+
+      // Position relative to image
+      const imgRect = imgElement.getBoundingClientRect();
+      const containerRect = contentEditableRef.current.getBoundingClientRect();
+
+      handle.style.position = "fixed";
+      handle.style.top =
+        imgRect.top +
+        (pos.top || 0) +
+        (pos.top === "50%" ? imgRect.height / 2 : 0) +
+        "px";
+      handle.style.left =
+        imgRect.left +
+        (pos.left || 0) +
+        (pos.right ? imgRect.width : 0) +
+        (pos.left === "50%" ? imgRect.width / 2 : 0) +
+        "px";
+
+      // Add mouse events for resizing
+      handle.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        startResize(e, imgElement, pos.class);
+      });
+
+      document.body.appendChild(handle);
+    });
+  };
+
+  // Start resize operation
+  const startResize = (e, imgElement, direction) => {
+    setIsResizing(true);
+
+    // Add resizing class to prevent text selection
+    document.body.classList.add("resizing");
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth = imgElement.offsetWidth;
+    const startHeight = imgElement.offsetHeight;
+    const aspectRatio = startHeight / startWidth;
+
+    const handleMouseMove = (e) => {
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
+
+      let newWidth = startWidth;
+      let newHeight = startHeight;
+
+      // Calculate new dimensions based on resize direction
+      switch (direction) {
+        case "se-resize":
+          newWidth = Math.max(50, Math.min(800, startWidth + deltaX));
+          newHeight = newWidth * aspectRatio;
+          break;
+        case "sw-resize":
+          newWidth = Math.max(50, Math.min(800, startWidth - deltaX));
+          newHeight = newWidth * aspectRatio;
+          break;
+        case "ne-resize":
+          newWidth = Math.max(50, Math.min(800, startWidth + deltaX));
+          newHeight = newWidth * aspectRatio;
+          break;
+        case "nw-resize":
+          newWidth = Math.max(50, Math.min(800, startWidth - deltaX));
+          newHeight = newWidth * aspectRatio;
+          break;
+        case "e-resize":
+          newWidth = Math.max(50, Math.min(800, startWidth + deltaX));
+          break;
+        case "w-resize":
+          newWidth = Math.max(50, Math.min(800, startWidth - deltaX));
+          break;
+        case "n-resize":
+          newHeight = Math.max(30, Math.min(600, startHeight - deltaY));
+          break;
+        case "s-resize":
+          newHeight = Math.max(30, Math.min(600, startHeight + deltaY));
+          break;
+      }
+
+      // Apply new dimensions
+      imgElement.style.width = newWidth + "px";
+      if (!["e-resize", "w-resize"].includes(direction)) {
+        imgElement.style.height = newHeight + "px";
+      }
+
+      // Update resize handles position
+      updateResizeHandles(imgElement);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+
+      // Remove resizing class
+      document.body.classList.remove("resizing");
+
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      handleContentChange(); // Save the changes
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  // Update resize handles position
+  const updateResizeHandles = (imgElement) => {
+    const handles = document.querySelectorAll(".resize-handle");
+    const imgRect = imgElement.getBoundingClientRect();
+
+    handles.forEach((handle, index) => {
+      const positions = [
+        { top: imgRect.top - 5, left: imgRect.left - 5 }, // nw
+        { top: imgRect.top - 5, left: imgRect.right - 5 }, // ne
+        { top: imgRect.bottom - 5, left: imgRect.left - 5 }, // sw
+        { top: imgRect.bottom - 5, left: imgRect.right - 5 }, // se
+        { top: imgRect.top - 5, left: imgRect.left + imgRect.width / 2 - 5 }, // n
+        { top: imgRect.bottom - 5, left: imgRect.left + imgRect.width / 2 - 5 }, // s
+        { top: imgRect.top + imgRect.height / 2 - 5, left: imgRect.left - 5 }, // w
+        { top: imgRect.top + imgRect.height / 2 - 5, left: imgRect.right - 5 }, // e
+      ];
+
+      if (positions[index]) {
+        handle.style.top = positions[index].top + "px";
+        handle.style.left = positions[index].left + "px";
+      }
+    });
+  };
+
+  // Delete selected image
+  const deleteSelectedImage = () => {
+    if (selectedImage) {
+      selectedImage.remove();
+      clearImageSelection();
+      handleContentChange(); // Save the changes
     }
   };
 
@@ -689,6 +976,20 @@ export default function NotesPage() {
                       handleContentChange();
                     }, 0);
                   }
+
+                  // Delete selected image with Delete or Backspace key
+                  if (
+                    (e.key === "Delete" || e.key === "Backspace") &&
+                    selectedImage
+                  ) {
+                    e.preventDefault();
+                    deleteSelectedImage();
+                  }
+
+                  // Escape key to clear selection
+                  if (e.key === "Escape") {
+                    clearImageSelection();
+                  }
                 }}
                 onPaste={handlePaste}
                 onDrop={handleDrop}
@@ -706,6 +1007,14 @@ export default function NotesPage() {
                   e.target.style.setProperty("--placeholder-opacity", "0");
                 }}
                 onClick={(e) => {
+                  // Clear image selection if clicking on text area (not on image)
+                  if (
+                    !e.target.closest(".resizable-image") &&
+                    !e.target.closest(".resize-handle")
+                  ) {
+                    clearImageSelection();
+                  }
+
                   // Ensure proper cursor positioning on click
                   const content = e.target.innerHTML;
                   if (

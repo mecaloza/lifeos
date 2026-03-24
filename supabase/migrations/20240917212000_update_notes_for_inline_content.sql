@@ -18,3 +18,6 @@ WHERE title = 'Project Ideas';
 UPDATE notes 
 SET content_html = 'Use this template for taking meeting notes:<br><br><strong>Date:</strong><br><strong>Attendees:</strong><br><strong>Agenda:</strong><br><strong>Discussion Points:</strong><br><strong>Action Items:</strong><br><strong>Next Steps:</strong>'
 WHERE title = 'Meeting Notes Template';
+
+
+

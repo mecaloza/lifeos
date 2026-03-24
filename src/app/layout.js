@@ -1,7 +1,7 @@
 import { Inter } from "next/font/google";
-import Link from "next/link";
-import { Home } from "lucide-react";
+import Script from "next/script";
 import Sidebar from "@/components/Sidebar";
+import AutoSyncProvider from "@/components/AutoSyncProvider";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -14,8 +14,17 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
+      <head>
+        {/* Google Identity Services for Calendar integration */}
+        <Script
+          src="https://accounts.google.com/gsi/client"
+          strategy="beforeInteractive"
+        />
+      </head>
       <body className={inter.className}>
         <div className="min-h-screen bg-black flex">
+          {/* Auto-sync calendars on every page load */}
+          <AutoSyncProvider />
           {/* Sidebar */}
           <Sidebar />
 

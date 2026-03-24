@@ -20,3 +20,6 @@ WITH CHECK (bucket_id = 'note-attachments');
 CREATE POLICY "Allow deletes from note attachments" ON storage.objects 
 FOR DELETE 
 USING (bucket_id = 'note-attachments');
+
+
+

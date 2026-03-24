@@ -1,8 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, X, Tag, Trash2, Clock, Loader, History } from "lucide-react";
+import { Plus, X, Tag, Trash2, Clock, Loader, History, Mail, Eye, EyeOff, Palette, Users, CheckCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+
+const TAG_COLORS = [
+  "#EF4444", "#F97316", "#F59E0B", "#84CC16", "#10B981",
+  "#06B6D4", "#3B82F6", "#8B5CF6", "#EC4899", "#6B7280",
+];
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState([]);
@@ -17,11 +22,19 @@ export default function TasksPage() {
     tags: [],
     duration_minutes: 60,
     start_time: null,
+    priority: "medium",
   });
   const [selectedTagId, setSelectedTagId] = useState("");
+  const [showCreateTag, setShowCreateTag] = useState(false);
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagColor, setNewTagColor] = useState("#3B82F6");
+  const [savingTag, setSavingTag] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [selectedTaskForTimeline, setSelectedTaskForTimeline] = useState(null);
   const [taskTimeline, setTaskTimeline] = useState([]);
+  const [showIntegratedTasks, setShowIntegratedTasks] = useState(false);
+  const [showDelegatedTasks, setShowDelegatedTasks] = useState(false);
+  const [showCompletedTasks, setShowCompletedTasks] = useState(false);
 
   // Fetch tasks and tags from Supabase on mount
   useEffect(() => {
@@ -121,6 +134,7 @@ export default function TasksPage() {
         tags: [],
         duration_minutes: 60,
         start_time: null,
+        priority: "medium",
       });
       setSelectedTagId("");
       setShowNewTask(false);
@@ -138,6 +152,43 @@ export default function TasksPage() {
     });
   };
 
+  const handleCreateTag = async () => {
+    if (!newTagName.trim()) return;
+
+    setSavingTag(true);
+    try {
+      const { data, error } = await supabase
+        .from("tags")
+        .insert([{ name: newTagName.trim(), color: newTagColor }])
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === "23505") {
+          alert("A tag with this name already exists!");
+        } else {
+          console.error("Error creating tag:", error);
+        }
+      } else {
+        // Add the new tag to availableTags
+        setAvailableTags([...availableTags, data].sort((a, b) => a.name.localeCompare(b.name)));
+        // Also add it to the current task
+        setFormData({
+          ...formData,
+          tags: [...formData.tags, data.name],
+        });
+        // Reset the form
+        setNewTagName("");
+        setNewTagColor("#3B82F6");
+        setShowCreateTag(false);
+      }
+    } catch (error) {
+      console.error("Error:", error);
+    } finally {
+      setSavingTag(false);
+    }
+  };
+
   const startEditingTask = (task) => {
     setEditingTask(task);
     setFormData({
@@ -146,6 +197,7 @@ export default function TasksPage() {
       tags: task.tags || [],
       duration_minutes: task.duration_minutes || 60,
       start_time: task.start_time,
+      priority: task.priority || "medium",
     });
     setShowNewTask(false);
   };
@@ -194,6 +246,7 @@ export default function TasksPage() {
         tags: [],
         duration_minutes: 60,
         start_time: null,
+        priority: "medium",
       });
       setSelectedTagId("");
       setEditingTask(null);
@@ -250,6 +303,39 @@ export default function TasksPage() {
 
   // Get all unique tags from all tasks
   const allTags = [...new Set(tasks.flatMap((task) => task.tags || []))];
+
+  // Filter tasks - hide integrated, delegated, completed, and grouped child tasks by default
+  const filteredTasks = tasks.filter((task) => {
+    // Hide child tasks that belong to a group
+    if (task.parent_task_id) {
+      return false;
+    }
+    // Hide completed tasks unless toggled
+    if (!showCompletedTasks && task.completed) {
+      return false;
+    }
+    // Hide integrated tasks unless toggled
+    const isIntegrated = task.source && task.source !== "manual";
+    if (!showIntegratedTasks && isIntegrated) {
+      return false;
+    }
+    // Hide delegated tasks unless toggled
+    if (!showDelegatedTasks && task.is_delegated) {
+      return false;
+    }
+    return true;
+  });
+
+  // Count integrated tasks
+  const integratedTasksCount = tasks.filter(
+    (task) => task.source && task.source !== "manual"
+  ).length;
+
+  // Count delegated tasks
+  const delegatedTasksCount = tasks.filter((task) => task.is_delegated).length;
+
+  // Count completed tasks
+  const completedTasksCount = tasks.filter((task) => task.completed).length;
 
   const showTaskTimeline = async (task) => {
     try {
@@ -309,18 +395,81 @@ export default function TasksPage() {
               Manage your workflow with intelligent tagging
             </p>
           </div>
-          <button
-            onClick={() => {
-              setShowNewTask(true);
-              setEditingTask(null);
-              setFormData({ title: "", description: "", tags: [] });
-              setSelectedTagId("");
-            }}
-            className="flex items-center space-x-2 px-4 py-2 bg-[#1e1e1e] border border-[#2d2d2d] text-white rounded-lg hover:bg-[#2a2a2a] hover:border-[#3a3a3a] transition-all duration-200 font-medium"
-          >
-            <Plus className="w-5 h-5" />
-            <span>New Task</span>
-          </button>
+          <div className="flex items-center space-x-3">
+            {/* Toggle for completed tasks */}
+            {completedTasksCount > 0 && (
+              <button
+                onClick={() => setShowCompletedTasks(!showCompletedTasks)}
+                className={`flex items-center space-x-2 px-4 py-2 border rounded-lg transition-all duration-200 font-medium ${
+                  showCompletedTasks
+                    ? "bg-green-500/20 border-green-500/50 text-green-400"
+                    : "bg-[#1e1e1e] border-[#2d2d2d] text-[#a1a1a1] hover:bg-[#2a2a2a] hover:border-[#3a3a3a]"
+                }`}
+                title={showCompletedTasks ? "Hide completed tasks" : "Show completed tasks"}
+              >
+                {showCompletedTasks ? (
+                  <Eye className="w-4 h-4" />
+                ) : (
+                  <EyeOff className="w-4 h-4" />
+                )}
+                <CheckCircle className="w-4 h-4" />
+                <span className="text-sm">Done ({completedTasksCount})</span>
+              </button>
+            )}
+
+            {/* Toggle for delegated tasks */}
+            {delegatedTasksCount > 0 && (
+              <button
+                onClick={() => setShowDelegatedTasks(!showDelegatedTasks)}
+                className={`flex items-center space-x-2 px-4 py-2 border rounded-lg transition-all duration-200 font-medium ${
+                  showDelegatedTasks
+                    ? "bg-purple-500/20 border-purple-500/50 text-purple-400"
+                    : "bg-[#1e1e1e] border-[#2d2d2d] text-[#a1a1a1] hover:bg-[#2a2a2a] hover:border-[#3a3a3a]"
+                }`}
+                title={showDelegatedTasks ? "Hide delegated tasks" : "Show delegated tasks"}
+              >
+                {showDelegatedTasks ? (
+                  <Eye className="w-4 h-4" />
+                ) : (
+                  <EyeOff className="w-4 h-4" />
+                )}
+                <Users className="w-4 h-4" />
+                <span className="text-sm">Delegated ({delegatedTasksCount})</span>
+              </button>
+            )}
+
+            {/* Toggle for integrated tasks */}
+            <button
+              onClick={() => setShowIntegratedTasks(!showIntegratedTasks)}
+              className={`flex items-center space-x-2 px-4 py-2 border rounded-lg transition-all duration-200 font-medium ${
+                showIntegratedTasks
+                  ? "bg-blue-500/20 border-blue-500/50 text-blue-400"
+                  : "bg-[#1e1e1e] border-[#2d2d2d] text-[#a1a1a1] hover:bg-[#2a2a2a] hover:border-[#3a3a3a]"
+              }`}
+              title={showIntegratedTasks ? "Hide calendar events" : "Show calendar events"}
+            >
+              {showIntegratedTasks ? (
+                <Eye className="w-4 h-4" />
+              ) : (
+                <EyeOff className="w-4 h-4" />
+              )}
+              <Mail className="w-4 h-4" />
+              <span className="text-sm">{showIntegratedTasks ? "Synced" : "Synced"}</span>
+            </button>
+            
+            <button
+              onClick={() => {
+                setShowNewTask(true);
+                setEditingTask(null);
+                setFormData({ title: "", description: "", tags: [] });
+                setSelectedTagId("");
+              }}
+              className="flex items-center space-x-2 px-4 py-2 bg-[#1e1e1e] border border-[#2d2d2d] text-white rounded-lg hover:bg-[#2a2a2a] hover:border-[#3a3a3a] transition-all duration-200 font-medium"
+            >
+              <Plus className="w-5 h-5" />
+              <span>New Task</span>
+            </button>
+          </div>
         </div>
 
         {/* Task Creation/Edit Form */}
@@ -387,7 +536,7 @@ export default function TasksPage() {
                 <label className="block text-sm font-medium text-[#a1a1a1] mb-2">
                   Tags
                 </label>
-                <div className="mb-3">
+                <div className="flex space-x-2 mb-3">
                   <select
                     value={selectedTagId}
                     onChange={(e) => {
@@ -408,7 +557,7 @@ export default function TasksPage() {
                       }
                       setSelectedTagId("");
                     }}
-                    className="w-full px-3 py-2 rounded-lg border border-[#2d2d2d] bg-[#0a0a0a] text-white focus:border-[#3a3a3a] focus:outline-none transition-colors duration-200"
+                    className="flex-1 px-3 py-2 rounded-lg border border-[#2d2d2d] bg-[#0a0a0a] text-white focus:border-[#3a3a3a] focus:outline-none transition-colors duration-200"
                     disabled={saving}
                   >
                     <option value="" className="bg-[#0a0a0a] text-[#666666]">
@@ -425,7 +574,96 @@ export default function TasksPage() {
                       </option>
                     ))}
                   </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateTag(!showCreateTag)}
+                    className={`px-3 py-2 rounded-lg border transition-all duration-200 flex items-center space-x-1 ${
+                      showCreateTag
+                        ? "bg-[#8B5CF6]/20 border-[#8B5CF6]/50 text-[#8B5CF6]"
+                        : "border-[#2d2d2d] bg-[#0a0a0a] text-[#a1a1a1] hover:bg-[#1a1a1a] hover:border-[#3a3a3a] hover:text-white"
+                    }`}
+                    disabled={saving}
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="text-sm">New</span>
+                  </button>
                 </div>
+
+                {/* Create New Tag Form */}
+                {showCreateTag && (
+                  <div className="mb-4 p-4 bg-[#0a0a0a] border border-[#2d2d2d] rounded-lg space-y-3">
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="text"
+                        value={newTagName}
+                        onChange={(e) => setNewTagName(e.target.value)}
+                        placeholder="Tag name..."
+                        className="flex-1 px-3 py-2 rounded-lg border border-[#2d2d2d] bg-[#1a1a1a] text-white placeholder-[#666666] focus:border-[#3a3a3a] focus:outline-none text-sm"
+                        disabled={savingTag}
+                      />
+                      <div
+                        className="w-8 h-8 rounded-lg border border-[#3a3a3a] cursor-pointer"
+                        style={{ backgroundColor: newTagColor }}
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {TAG_COLORS.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          onClick={() => setNewTagColor(color)}
+                          className={`w-6 h-6 rounded-md transition-all duration-150 ${
+                            newTagColor === color
+                              ? "ring-2 ring-white ring-offset-1 ring-offset-[#0a0a0a] scale-110"
+                              : "hover:scale-110"
+                          }`}
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span
+                        className="inline-flex items-center px-3 py-1 rounded-lg text-sm font-medium"
+                        style={{
+                          backgroundColor: `${newTagColor}25`,
+                          color: newTagColor,
+                          border: `1px solid ${newTagColor}50`,
+                        }}
+                      >
+                        <Tag className="w-3 h-3 mr-1" />
+                        {newTagName || "Preview"}
+                      </span>
+                      <div className="flex space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCreateTag(false);
+                            setNewTagName("");
+                            setNewTagColor("#3B82F6");
+                          }}
+                          className="px-3 py-1.5 text-sm text-[#a1a1a1] hover:text-white transition-colors"
+                          disabled={savingTag}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCreateTag}
+                          disabled={savingTag || !newTagName.trim()}
+                          className="px-3 py-1.5 text-sm bg-[#8B5CF6] text-white rounded-lg hover:bg-[#7C3AED] transition-colors disabled:opacity-50 flex items-center space-x-1"
+                        >
+                          {savingTag ? (
+                            <Loader className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Plus className="w-3 h-3" />
+                          )}
+                          <span>Create</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Display current tags */}
                 {formData.tags.length > 0 && (
                   <div className="flex flex-wrap gap-3">
@@ -462,6 +700,67 @@ export default function TasksPage() {
                     })}
                   </div>
                 )}
+              </div>
+
+              {/* Priority */}
+              <div>
+                <label className="block text-sm font-medium text-[#a1a1a1] mb-2">
+                  Priority
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    {
+                      value: "urgent",
+                      label: "Urgent",
+                      color: "#EF4444",
+                      emoji: "🔴",
+                    },
+                    {
+                      value: "high",
+                      label: "High",
+                      color: "#F59E0B",
+                      emoji: "🟠",
+                    },
+                    {
+                      value: "medium",
+                      label: "Medium",
+                      color: "#3B82F6",
+                      emoji: "🔵",
+                    },
+                    {
+                      value: "low",
+                      label: "Low",
+                      color: "#6B7280",
+                      emoji: "⚪",
+                    },
+                  ].map((priority) => (
+                    <button
+                      key={priority.value}
+                      type="button"
+                      onClick={() =>
+                        setFormData({ ...formData, priority: priority.value })
+                      }
+                      className={`flex items-center justify-center space-x-1 px-3 py-2 rounded-lg text-sm font-medium transition-all border ${
+                        formData.priority === priority.value
+                          ? "border-current text-white"
+                          : "border-[#2d2d2d] text-[#a1a1a1] hover:border-[#3a3a3a] hover:text-white"
+                      }`}
+                      style={{
+                        backgroundColor:
+                          formData.priority === priority.value
+                            ? `${priority.color}20`
+                            : "transparent",
+                        color:
+                          formData.priority === priority.value
+                            ? priority.color
+                            : undefined,
+                      }}
+                    >
+                      <span>{priority.emoji}</span>
+                      <span>{priority.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Submit Button */}
@@ -501,18 +800,25 @@ export default function TasksPage() {
 
         {/* Tasks List */}
         <div className="space-y-4">
-          {tasks.length === 0 ? (
+          {/* Info banner when integrated tasks are hidden */}
+        
+
+          {filteredTasks.length === 0 ? (
             <div className="text-center py-12 bg-[#1a1a1a] border border-[#2d2d2d] rounded-lg">
               <div className="w-12 h-12 bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg flex items-center justify-center mx-auto mb-4">
                 <Plus className="w-6 h-6 text-[#a1a1a1]" />
               </div>
-              <p className="text-white text-base font-medium">No tasks yet</p>
+              <p className="text-white text-base font-medium">
+                {tasks.length === 0 ? "No tasks yet" : "No manual tasks"}
+              </p>
               <p className="text-[#666666] text-sm mt-1">
-                Create your first task to get started on your workflow
+                {tasks.length === 0
+                  ? "Create your first task to get started on your workflow"
+                  : "Create a task or enable synced events filter to see more"}
               </p>
             </div>
           ) : (
-            tasks.map((task) => (
+            filteredTasks.map((task) => (
               <div
                 key={task.id}
                 onClick={() => startEditingTask(task)}
@@ -549,13 +855,42 @@ export default function TasksPage() {
                         )}
                       </button>
                       <div className="flex-1">
-                        <h3
-                          className={`text-base font-medium text-white ${
-                            task.completed ? "line-through opacity-60" : ""
-                          }`}
-                        >
-                          {task.title}
-                        </h3>
+                        <div className="flex items-center space-x-2 mb-1">
+                          {/* Priority Indicator */}
+                          <div
+                            className="w-2 h-2 rounded-full"
+                            style={{
+                              backgroundColor:
+                                {
+                                  urgent: "#EF4444",
+                                  high: "#F59E0B",
+                                  medium: "#3B82F6",
+                                  low: "#6B7280",
+                                }[task.priority] || "#3B82F6",
+                            }}
+                            title={`Priority: ${task.priority || "medium"}`}
+                          ></div>
+                          <h3
+                            className={`text-base font-medium text-white ${
+                              task.completed ? "line-through opacity-60" : ""
+                            }`}
+                          >
+                            {task.title}
+                          </h3>
+                          {/* Source Badge */}
+                          {task.source && task.source !== "manual" && (
+                            <span className="bg-blue-500/20 text-blue-400 text-xs px-2 py-0.5 rounded-full font-medium flex items-center space-x-1">
+                              <Mail className="w-3 h-3" />
+                              <span>{task.source}</span>
+                            </span>
+                          )}
+                          {/* Priority Badge */}
+                          {task.priority === "urgent" && (
+                            <span className="bg-red-500/20 text-red-400 text-xs px-2 py-0.5 rounded-full font-medium">
+                              URGENT
+                            </span>
+                          )}
+                        </div>
                         {task.description && (
                           <p className="text-[#a1a1a1] mt-1 text-sm leading-relaxed">
                             {task.description}
