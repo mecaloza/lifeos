@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   CheckSquare,
   Calendar,
   BarChart3,
@@ -43,6 +44,11 @@ export default function Sidebar() {
       icon: Calendar,
       href: "/calendar",
       label: "Calendar",
+    },
+    {
+      icon: Activity,
+      href: "/fitness",
+      label: "Fitness",
     },
     {
       icon: BarChart3,
